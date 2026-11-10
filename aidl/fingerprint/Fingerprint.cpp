@@ -95,6 +95,8 @@ Fingerprint::Fingerprint(std::shared_ptr<FingerprintConfig> config) : mConfig(st
             mUdfpsHandler = mUdfpsHandlerFactory->create();
             if (!mUdfpsHandler) {
                 ALOGE("Can't create UdfpsHandler");
+            } else if (!mDevice) {
+                ALOGE("Can't initialize UdfpsHandler without a fingerprint HAL");
             } else {
                 mUdfpsHandler->init(mDevice);
             }
@@ -242,7 +244,20 @@ ndk::ScopedAStatus Fingerprint::getSensorProps(std::vector<SensorProps>* out) {
 ndk::ScopedAStatus Fingerprint::createSession(int32_t /*sensorId*/, int32_t userId,
                                               const std::shared_ptr<ISessionCallback>& cb,
                                               std::shared_ptr<ISession>* out) {
-    CHECK(mSession == nullptr || mSession->isClosed()) << "Open session already exists!";
+    if (!mDevice) {
+        ALOGE("Refusing to create a fingerprint session without an opened HAL");
+        return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
+    }
+
+    if (!cb || !out) {
+        ALOGE("Refusing to create a fingerprint session with invalid arguments");
+        return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_ARGUMENT);
+    }
+
+    if (mSession != nullptr && !mSession->isClosed()) {
+        ALOGE("Refusing to create a second fingerprint session");
+        return ndk::ScopedAStatus::fromExceptionCode(EX_ILLEGAL_STATE);
+    }
 
     mSession = SharedRefBase::make<Session>(mDevice, mUdfpsHandler, userId, cb, mLockoutTracker);
     *out = mSession;
